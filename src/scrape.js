@@ -1,16 +1,39 @@
 import { WEBSITE_HREF } from './config.js';
+import { getDuration } from './utils.js';
+import { scrapeToFile as writeToFile} from './writeToFile.js';
+import { handleError, logErrors } from './errors.js';
 import filterList from './filter.js';
 import scrapePage from './scrapePage.js';
-import writeToFile from './writeToFile.js';
+import getCurrentDir from './getCurrentDir.js';
 
 console.log(WEBSITE_HREF);
 
 export let scrapedPages = [];
 let pagesToScrape = [];
+let errors = [];
 
 function scrapeCallback(url, data) {
+    if (data.error) {
+        handleError(errors, data.error);
+        data.sameDomainLinks = [];
+        data.samePageLinks = [];
+        data.sameDomainLinks = [];
+        data.subDomainLinks = [];
+        data.thirdPartyLinks = [];
+        data.spreadsheets = [];
+        data.documents = [];
+        data.images = [];
+        data.media = [];
+        data.pdf = [];
+    }
+
+    const currentDir = getCurrentDir(url);
+    const toScrape = [
+        ...data.sameDomainLinks,
+    ];
+
     scrapedPages = [...scrapedPages, url].sort();
-    pagesToScrape = [...new Set([...pagesToScrape, ...filterList(data.sameDomainLinks)])]; // filtered and unique set
+    pagesToScrape = [...new Set([...pagesToScrape, ...filterList(toScrape, { currentDir })])]; // filtered and unique set
     pagesToScrape = pagesToScrape
         .filter(n => !scrapedPages.includes(n)) // remove already scraped
         .sort() // sort
@@ -19,38 +42,7 @@ function scrapeCallback(url, data) {
     return data;
 }
 
-export function printData(data, title) {
-    const length = data.length;
-    let content = '';
-
-    content = `    ${title} (${length}):\n`;
-    data.forEach(link => content += `        ${link}\n`);
-    content += `\n`;
-
-    return content;
-}
-
-function getDifferenceInSeconds(date1, date2) {
-    const diffInMs = Math.abs(date2 - date1);
-
-    return diffInMs / 1000;
-}
-
-function getDuration(timeStart, timeEnd) {
-    const time = getDifferenceInSeconds(timeStart, timeEnd);
-    let duration = `${time} seconds!`;
-
-    if (time > 60) {
-        const minutes = Math.floor(time / 60);
-        const seconds = time - minutes * 60;
-
-        duration = `${minutes} minutes and ${seconds} seconds!`;
-    }
-
-    return duration;
-}
-
-async function crawlSite(url, write = false, log = false) {
+async function crawlSite(url, write = true) {
     const timeStart = new Date();
     let timeEnd = timeStart;
     let duration = 0;
@@ -59,10 +51,7 @@ async function crawlSite(url, write = false, log = false) {
     const crawlData = [{
         pageName: 'homepage',
         url: '/',
-        sameDomainLinks: firstScrape.sameDomainLinks,
-        samePageLinks: firstScrape.samePageLinks,
-        subDomainLinks: firstScrape.subDomainLinks,
-        thirdPartyLinks: firstScrape.thirdPartyLinks,
+        ...firstScrape,
     }];
 
     pagesToScrape = [...firstScrape.sameDomainLinks];
@@ -84,9 +73,10 @@ async function crawlSite(url, write = false, log = false) {
         console.log('Pages to scrape: ', pagesToScrape.length, ' | Pages scraped: ', scrapedPages.length);
     }
 
-    if (write) {
-        writeToFile(crawlData);
-    }
+    logErrors(errors);
+
+    if (write)
+        writeToFile(crawlData, scrapedPages, errors);
 
     timeEnd = new Date();
     duration = getDuration(timeStart, timeEnd);
